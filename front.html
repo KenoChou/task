@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生请假管理系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.7.14/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@0.27.2/dist/axios.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/element-ui/lib/theme-chalk/index.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/element-ui/lib/index.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:"Microsoft Yahei"}
+        .login-wrap{width:100%;height:100vh;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);display:flex;align-items:center;justify-content:center}
+        .login-card{width:440px;background:#fff;border-radius:12px;padding:40px;box-shadow:0 8px 32px rgba(0,0,0,0.15)}
+        .login-title{text-align:center;font-size:26px;color:#111;margin-bottom:32px;font-weight:500}
+        .el-input{margin-bottom:18px}
+        .el-button{height:42px;font-size:16px}
+        .admin-layout{display:flex;height:100vh;background:#f0f2f5}
+        .sidebar{width:240px;background:#001529;color:#fff;display:flex;flex-direction:column}
+        .sidebar-title{height:60px;line-height:60px;text-align:center;font-size:18px;font-weight:bold;background:rgba(255,255,255,0.1)}
+        .sidebar-menu{flex:1;padding:10px 0}
+        .menu-item{height:46px;line-height:46px;padding:0 24px;font-size:15px;cursor:pointer;transition:all 0.2s}
+        .menu-item:hover{background:rgba(255,255,255,0.1)}
+        .menu-item.active{background:#1890ff}
+        .logout-btn{margin-top:auto;height:46px;line-height:46px;padding:0 24px;color:#ff7875;cursor:pointer;border-top:1px solid rgba(255,255,255,0.1)}
+        .main-wrap{flex:1;padding:24px;overflow:auto}
+        .page-card{background:#fff;border-radius:8px;padding:24px;box-shadow:0 2px 12px 0 rgba(0,0,0,0.08)}
+        .page-title{font-size:20px;color:#1f2937;margin-bottom:24px;border-left:4px solid #1890ff;padding-left:12px}
+        .form-row{margin-bottom:20px}
+    </style>
+</head>
+<body>
+<div id="app">
+    <div v-if="token === ''" class="login-wrap">
+        <div class="login-card">
+            <h2 class="login-title">学生请假管理系统</h2>
+            <el-input v-model="loginForm.username" placeholder="请输入账号"></el-input>
+            <el-input v-model="loginForm.password" type="password" placeholder="请输入密码"></el-input>
+            <el-button type="primary" block @click="handleLogin">登录系统</el-button>
+        </div>
+    </div>
+
+    <div v-else class="admin-layout">
+        <div class="sidebar">
+            <div class="sidebar-title">请假管理平台</div>
+            <div class="sidebar-menu">
+                <div class="menu-item" :class="{active: currentPage === 'leaveList'}" @click="currentPage='leaveList'">全部请假记录</div>
+                <!-- 已修改：点击菜单自动重置请假表单 -->
+                <div v-if="role === 'student'" class="menu-item" :class="{active: currentPage === 'applyLeave'}" @click="currentPage='applyLeave'; leaveForm={student_id:1,reason:'',start_date:'',end_date:''}">发起请假申请</div>
+                <div v-if="role === 'admin'" class="menu-item" :class="{active: currentPage === 'userManage'}" @click="currentPage='userManage'">账号管理</div>
+            </div>
+            <div class="logout-btn" @click="logout">退出登录</div>
+        </div>
+        <div class="main-wrap">
+            <div v-if="currentPage === 'leaveList'" class="page-card">
+                <div class="page-title">请假记录管理</div>
+                <el-table :data="leaveTableData" border stripe>
+                    <el-table-column label="ID" prop="id" width="80"></el-table-column>
+                    <el-table-column label="学生ID" prop="student_id" width="120"></el-table-column>
+                    <el-table-column label="请假原因" prop="reason"></el-table-column>
+                    <el-table-column label="请假时段">
+                        <template slot-scope="scope">{{scope.row.start_date}} 至 {{scope.row.end_date}}</template>
+                    </el-table-column>
+                    <el-table-column label="审核状态" width="120">
+                        <template slot-scope="scope">
+                            <el-tag v-if="scope.row.status === 0" type="warning">待审核</el-tag>
+                            <el-tag v-if="scope.row.status === 1" type="success">已通过</el-tag>
+                            <el-tag v-if="scope.row.status === 2" type="danger">已驳回</el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column v-if="role === 'admin'" label="操作" width="180">
+                        <template slot-scope="scope">
+                            <el-button size="mini" type="success" @click="auditHandler(scope.row.id,1)">通过</el-button>
+                            <el-button size="mini" type="danger" @click="auditHandler(scope.row.id,2)">驳回</el-button>
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </div>
+
+            <div v-if="currentPage === 'applyLeave'" class="page-card">
+                <div class="page-title">新建请假申请</div>
+                <div class="form-row">
+                    <label>请假原因：</label>
+                    <el-input v-model="leaveForm.reason"></el-input>
+                </div>
+                <div class="form-row">
+                    <label>开始日期：</label>
+                    <el-input v-model="leaveForm.start_date"></el-input>
+                </div>
+                <div class="form-row">
+                    <label>结束日期：</label>
+                    <el-input v-model="leaveForm.end_date"></el-input>
+                </div>
+                <el-button type="primary" @click="submitLeave">提交申请</el-button>
+            </div>
+
+            <div v-if="currentPage === 'userManage'" class="page-card">
+                <div class="page-title">系统账号管理</div>
+                <el-tabs v-model="activeTab">
+                    <el-tab-pane label="新增学生账号">
+                        <div class="form-row">
+                            <label>学号：</label>
+                            <el-input v-model="newStudent.username"></el-input>
+                        </div>
+                        <div class="form-row">
+                            <label>姓名：</label>
+                            <el-input v-model="newStudent.name"></el-input>
+                        </div>
+                        <el-button type="primary" @click="addStudentAccount">创建学生账号</el-button>
+                    </el-tab-pane>
+                    <el-tab-pane label="全部账号列表">
+                        <el-table :data="userTable" border stripe>
+                            <el-table-column label="ID" prop="id" width="80"></el-table-column>
+                            <el-table-column label="账号" prop="username"></el-table-column>
+                            <el-table-column label="姓名" prop="name"></el-table-column>
+                            <el-table-column label="角色" prop="role"></el-table-column>
+                        </el-table>
+                    </el-tab-pane>
+                </el-tabs>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const baseURL = "http://127.0.0.1:8080"
+axios.defaults.baseURL = baseURL
+axios.defaults.validateStatus = status => status >= 200 && status < 300;
+
+const vm = new Vue({
+    el: "#app",
+    data(){
+        return {
+            token: "",
+            role: "",
+            currentPage: "leaveList",
+            activeTab: "1",
+            loginForm: {username:"", password:""},
+            leaveForm: {student_id: 1, reason:"", start_date:"", end_date:""},
+            newStudent: {username:"", password:"123456", name:""},
+            leaveTableData: [],
+            userTable: []
+        }
+    },
+    mounted(){
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        this.token = "";
+        this.role = "";
+    },
+    methods: {
+        handleLogin(){
+    axios.post("/auth/login", this.loginForm)
+    .then(res=>{
+        if(res.data.code !== 200){
+            this.$message.error(res.data.msg || "账号或密码错误")
+            return
+        }
+        this.role = res.data.data.role
+        // 随便赋值，让 v-else 生效
+        this.token = "temp_token_123"
+        localStorage.setItem("role", this.role)
+        this.$message.success("登录成功")
+        this.currentPage = "leaveList"
+        setTimeout(()=>{
+            this.loadLeaveData()
+            if(this.role === "admin") this.loadUserData()
+        },300)
+    })
+    .catch(()=>{
+        this.$message.error("请求失败，请检查服务")
+    })
+},
+        logout(){
+            localStorage.removeItem("token")
+            localStorage.removeItem("role")
+            this.token = ""
+            this.role = ""
+        },
+        async loadLeaveData(){
+            try{
+                const res = await axios.get("/api/leave/list")
+                if(res.data.code === 200){
+                    this.leaveTableData = Array.isArray(res.data.data) ? res.data.data : []
+                }else{
+                    this.leaveTableData = []
+                }
+            }catch{
+                this.leaveTableData = []
+            }
+        },
+        async submitLeave(){
+            // 手动读取输入框真实内容，解决v-model不同步
+            this.leaveForm.start_date = document.querySelector('input[placeholder="开始日期"]').value
+            this.leaveForm.end_date = document.querySelector('input[placeholder="结束日期"]').value
+            try{
+                const res = await axios.post("/api/leave/create", this.leaveForm)
+                if(res.data.code === 200){
+                    this.$message.success("申请提交成功")
+                    this.currentPage = "leaveList"
+                    setTimeout(()=>this.loadLeaveData(),100)
+                }else{
+                    this.$message.error(res.data.msg)
+                }
+            }catch(err){
+                console.error(err)
+                this.$message.error("提交失败：后端接口未实现或服务异常")
+            }
+        },
+        async auditHandler(id, status){
+            const res = await axios.put(`/api/leave/audit/${id}`, {status})
+            if(res.data.code === 200){
+                this.$message.success("审核完成")
+                setTimeout(()=>this.loadLeaveData(),100)
+            }else{
+                this.$message.error(res.data.msg)
+            }
+        },
+        addStudentAccount(){
+            axios.post("/api/student/add", this.newStudent)
+            .then(res=>{
+                if(res.data.code === 200){
+                    this.$message.success("创建成功")
+                    this.loadUserData()
+                }else{
+                    this.$message.error(res.data.msg)
+                }
+            })
+            .catch(()=>this.$message.error("创建失败"))
+        },
+        async loadUserData(){
+            try{
+                const res = await axios.get("/api/admin/list")
+                if(res.data.code === 200){
+                    this.userTable = Array.isArray(res.data.data) ? res.data.data : []
+                }else{
+                    this.userTable = []
+                }
+            }catch{
+                this.userTable = []
+            }
+        }
+    }
+})
+</script>
+</body>
+</html>
